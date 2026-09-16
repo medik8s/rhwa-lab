@@ -18,11 +18,16 @@ no live AWS test has been performed. Expect to iterate. Design spec:
 
 ## Prerequisites (your machine)
 
-`bash`, `aws` CLI v2, `jq`, `curl`, `ssh`/`scp`, `tar`, `openssl`, and an SSH
-keypair (`~/.ssh/id_rsa[.pub]` by default). `oc`/`openshift-install` are
-downloaded automatically. An AWS account allowed to manage EC2/EIP/Route53
-with enough On-Demand vCPU quota (~48). A Red Hat pull secret with Red Hat
-registry entitlement.
+Runs on **Linux or macOS** (Intel or Apple Silicon). Needs `bash`, `aws` CLI
+v2, `jq`, `curl`, `ssh`/`scp`, `tar`, `openssl`, `base64` (all present by
+default on both) and an SSH keypair (`~/.ssh/id_rsa[.pub]` by default).
+`oc`/`openshift-install` are downloaded automatically — the local `oc` matches
+your OS/arch. No GNU coreutils required; macOS's stock `bash` 3.2 is fine.
+An AWS account allowed to manage EC2/EIP/Route53 with enough On-Demand vCPU
+quota (~48). A Red Hat pull secret with Red Hat registry entitlement.
+
+> The lab still provisions a **Linux** EC2 host and Linux guest VMs; only the
+> control CLI you run locally is cross-platform.
 
 ## Usage
 

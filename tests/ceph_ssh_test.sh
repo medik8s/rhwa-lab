@@ -12,7 +12,7 @@ export CLUSTER_NAME=t OCP_VERSION=stable-4.22 NET_CIDR=192.168.126.0/24 \
 source "${DIR}/../lib/common.sh"
 source "${DIR}/../lib/odf.sh"
 host_ip(){ echo 203.0.113.9; }
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 ssh(){ printf '%s\n' "$*" >>"$OUT"; }   # capture the argv _ssh_ceph builds
 _ssh_ceph "sudo bash -s" </dev/null
 

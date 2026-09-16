@@ -345,7 +345,7 @@ EOS
 odf_ceph_export() {
   [[ "${CEPH_ENABLED}" == "true" ]] || return 0
   local out="${CLUSTER_DIR}/ceph-external.json"
-  local err; err="$(mktemp)"
+  local err; err="$(mktemp "${TMPDIR:-/tmp}/rhwa-lab.XXXXXX")"
   log "Exporting external Ceph connection details (rbd pool ${CEPH_RBD_POOL})"
   _ssh_ceph "sudo bash -s" >"${out}" 2>"${err}" <<EOS
 set -euo pipefail
@@ -453,7 +453,7 @@ odf_import_external() {
   # '*-secret-namespace' (=ODF_NAMESPACE) for EVERY '*-secret-name' so the SC ODF
   # generates from these details is complete. This is the permanent fix -- ODF
   # regenerates the SC from this data, so it can't be undone by editing the SC.
-  local src; src="$(mktemp)"
+  local src; src="$(mktemp "${TMPDIR:-/tmp}/rhwa-lab.XXXXXX")"
   jq --arg ns "${ODF_NAMESPACE}" '
     map(if .kind=="StorageClass" and (.data|type=="object") then
           .data += ( .data | to_entries
@@ -481,7 +481,9 @@ odf_import_external() {
       else empty end
     ]}' "${src}" | oc apply -f -
   # (b) the blob secret. .data values are base64, so base64(JSON) -> operator decodes it.
-  local b64; b64="$(base64 -w0 "${src}")"
+  # `base64 | tr -d '\n'` is portable (GNU wraps at 76 by default; macOS/BSD
+  # base64 has no `-w0`), giving one unwrapped line on both.
+  local b64; b64="$(base64 "${src}" | tr -d '\n')"
   oc apply -f - <<EOF
 apiVersion: v1
 kind: Secret

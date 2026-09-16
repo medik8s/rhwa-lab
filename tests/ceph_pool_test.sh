@@ -15,7 +15,7 @@ source "${DIR}/../lib/odf.sh"
 state_get(){ echo ""; }   # not yet bootstrapped
 state_set(){ :; }
 _ceph_wait_ssh(){ :; }
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 _ssh_ceph(){ printf '%s\n' "$*" >>"$OUT"; cat >>"$OUT" 2>/dev/null || true; }
 odf_ceph_bootstrap
 

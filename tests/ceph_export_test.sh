@@ -7,12 +7,12 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }; die(){ echo "DIE: $*"; exit 1; }
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 export CEPH_ENABLED=true CEPH_RBD_POOL=ocs-storagepool ODF_NAMESPACE=openshift-storage \
        CEPH_IP=192.168.126.10 CEPH_EXPORTER_URL=https://example.test/exporter.py \
        CLUSTER_DIR="$tmp"
 source "${DIR}/../lib/odf.sh"
-CAP="$(mktemp)"
+CAP="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 # Capture the remote script (stdin) to CAP; emit a valid JSON array on stdout so
 # the function's jq validation passes (that stdout is redirected to the out file).
 _ssh_ceph(){ cat >>"$CAP"; printf '%s' '[{"name":"rook-ceph-mon","kind":"Secret","data":{}}]'; }

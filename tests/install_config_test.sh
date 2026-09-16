@@ -16,7 +16,7 @@ echo "$out" | grep -q 'replicas: 3' || { echo "FAIL controlPlane replicas"; exit
 echo "PASS"
 # Render agent-config via os_render_configs into a temp CLUSTER_DIR and assert masters-only.
 export PULL_SECRET='{"auths":{}}'
-tmp="$(mktemp -d)"; export STATE_DIR="$tmp" CLUSTER_DIR="$tmp/t"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"; export STATE_DIR="$tmp" CLUSTER_DIR="$tmp/t"
 scp_to(){ :; }   # not used here
 os_render_configs
 grep -q 'hostname: master-0' "$tmp/t/install/agent-config.yaml" || { echo "FAIL master missing"; exit 1; }

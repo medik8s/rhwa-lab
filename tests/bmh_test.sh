@@ -10,7 +10,7 @@ export CLUSTER_NAME=t NET_CIDR=192.168.126.0/24 NET_GATEWAY=192.168.126.1 \
 source "${DIR}/../lib/common.sh"
 state_get(){ echo "uuid-$RANDOM"; }   # every node has a uuid
 # Capture oc apply payloads + patch args.
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 oc(){ printf '%s\n' "$*" >>"$OUT"; cat >>"$OUT" 2>/dev/null || true;
       case "$*" in *"get baremetalhost worker-"*) return 1;; *"get baremetalhost master-"*) return 0;; esac; return 0; }
 source "${DIR}/../lib/rhwa.sh"
@@ -29,7 +29,7 @@ grep -q 'patch baremetalhost master-' "$OUT" || { echo "FAIL master must be patc
 declare -F rhwa_configure_spare_bmh && { echo "FAIL spare fn still defined"; exit 1; }
 
 # --- master BMH absent: self-heal by creating an externallyProvisioned host ---
-OUT2="$(mktemp)"
+OUT2="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 oc(){ printf '%s\n' "$*" >>"$OUT2"; cat >>"$OUT2" 2>/dev/null || true;
       # every get baremetalhost misses -> exercise the create fallbacks
       case "$*" in *"get baremetalhost "*) return 1;; esac; return 0; }

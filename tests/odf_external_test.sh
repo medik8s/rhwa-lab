@@ -12,7 +12,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }; die(){ echo "DIE: $*"; exit 1; }
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 export CEPH_ENABLED=true ODF_NAMESPACE=openshift-storage CLUSTER_DIR="$tmp"
 cat >"$tmp/ceph-external.json" <<'JSON'
 [
@@ -22,7 +22,7 @@ cat >"$tmp/ceph-external.json" <<'JSON'
 ]
 JSON
 source "${DIR}/../lib/odf.sh"
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 oc(){ printf '%s\n' "$*" >>"$OUT"; cat >>"$OUT" 2>/dev/null || true;
       case "$*" in *"get storagecluster"*) echo Ready;; esac; }
 

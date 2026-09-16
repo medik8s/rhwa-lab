@@ -6,7 +6,7 @@ source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }
 export ODF_ENABLED=false CEPH_ENABLED=false
 source "${DIR}/../lib/odf.sh"
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 ssh_host(){ printf 'ssh_host %s\n' "$*" >>"$OUT"; }
 _ssh_ceph(){ printf 'ssh_ceph %s\n' "$*" >>"$OUT"; }
 oc(){ printf 'oc %s\n' "$*" >>"$OUT"; }
