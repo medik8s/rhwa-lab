@@ -8,13 +8,13 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }
 # A readable public key file (odf_ceph_define_vm reads it to inject via cloud-init).
-KEY="$(mktemp)"; echo "ssh-ed25519 AAAATESTKEY ceph-test" >"$KEY"
+KEY="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"; echo "ssh-ed25519 AAAATESTKEY ceph-test" >"$KEY"
 export CLUSTER_NAME=t BASE_DOMAIN=example.com OCP_VERSION=stable-4.22 \
        NET_CIDR=192.168.126.0/24 LIBVIRT_NET=rhwa SSH_PUBLIC_KEY_FILE="$KEY" \
        CEPH_OSD_COUNT=3 CEPH_OSD_DISK_GB=236 CEPH_ROOT_DISK_GB=40 \
        CEPH_VCPU=4 CEPH_RAM_GB=16
 source "${DIR}/../lib/common.sh"
-CLUSTER_DIR="$(mktemp -d)/t"   # seed inputs are rendered under CLUSTER_DIR/ceph
+CLUSTER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")/t"   # seed inputs are rendered under CLUSTER_DIR/ceph
 source "${DIR}/../lib/odf.sh"
 state_get(){ echo ""; }   # ceph not yet bootstrapped -> (re)create path
 stub_ssh_host

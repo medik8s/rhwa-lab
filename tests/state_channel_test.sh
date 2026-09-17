@@ -9,8 +9,10 @@ source "${DIR}/lib.sh"
 export CLUSTER_NAME=t HOST_SSH_USER=fedora
 export SSH_PUBLIC_KEY_FILE=/tmp/somekey.pub          # private => /tmp/somekey
 source "${DIR}/../lib/common.sh" 2>/dev/null || true  # defines host_ip + record_ssh_channel
-declare -A _STATE=([eip]=203.0.113.9)
-state_set(){ _STATE["$1"]="$2"; }; state_get(){ echo "${_STATE[$1]:-}"; }
+# File-backed KV stub (no associative arrays -> runs on macOS's stock bash 3.2).
+_ST="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"; echo 'eip=203.0.113.9' >"$_ST"
+state_set(){ printf '%s=%s\n' "$1" "$2" >>"$_ST"; }
+state_get(){ local l; l="$(grep "^$1=" "$_ST" 2>/dev/null | tail -1)"; echo "${l#*=}"; }
 PRIV_KEY="${SSH_PUBLIC_KEY_FILE%.pub}"
 
 record_ssh_channel

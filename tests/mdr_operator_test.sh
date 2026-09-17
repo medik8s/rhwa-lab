@@ -4,7 +4,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }
 export RHWA_NAMESPACE=openshift-workload-availability RHWA_CHANNEL=stable
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 # Source rhwa.sh first to get the function
 source "${DIR}/../lib/rhwa.sh"
 # Then override with stubs to prevent actual oc/kubectl calls

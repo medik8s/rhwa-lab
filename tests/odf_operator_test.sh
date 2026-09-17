@@ -7,7 +7,7 @@ source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }
 export ODF_NAMESPACE=openshift-storage ODF_CHANNEL=stable-4.22
 source "${DIR}/../lib/odf.sh"
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 oc(){ printf '%s\n' "$*" >>"$OUT"; cat >>"$OUT" 2>/dev/null || true; }
 _odf_wait_csv(){ printf 'wait_csv %s\n' "$1" >>"$OUT"; }
 odf_install_operator

@@ -7,7 +7,7 @@ export WORKER_COUNT=3
 export OCP_VERSION=4.18.0
 export BIN_DIR=/tmp
 export KUBECONFIG_LOCAL=/tmp/kubeconfig
-OUT="$(mktemp)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 source "${DIR}/../lib/openshift.sh"
 # Stub oc AFTER sourcing openshift.sh (which defines its own oc wrapper)
 oc(){

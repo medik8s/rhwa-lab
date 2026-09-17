@@ -21,11 +21,26 @@ EOS
 }
 
 # Fetch a local oc for RHWA/test phases (talks to the public API endpoint).
+# This oc runs on the OPERATOR's machine (not the EC2 host), so pick the client
+# for the local OS/arch -- a Linux binary won't execute on macOS. os_host_tools
+# always fetches the Linux client because that one runs on the Linux EC2 host.
+_oc_client_tarball() {
+  case "$(uname -s)" in
+    Darwin)
+      case "$(uname -m)" in
+        arm64|aarch64) echo "openshift-client-mac-arm64.tar.gz" ;;
+        *)             echo "openshift-client-mac.tar.gz" ;;
+      esac ;;
+    *) echo "openshift-client-linux.tar.gz" ;;
+  esac
+}
+
 os_local_oc() {
   mkdir -p "$BIN_DIR"
   [[ -x "${BIN_DIR}/oc" ]] && return 0
-  log "Fetching local oc (${OCP_VERSION})"
-  curl -fsSL "${MIRROR}/openshift-client-linux.tar.gz" | tar xz -C "$BIN_DIR" oc kubectl
+  local tb; tb="$(_oc_client_tarball)"
+  log "Fetching local oc (${OCP_VERSION}, ${tb})"
+  curl -fsSL "${MIRROR}/${tb}" | tar xz -C "$BIN_DIR" oc kubectl
   ok "Local oc at ${BIN_DIR}/oc"
 }
 
