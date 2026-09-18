@@ -372,10 +372,52 @@ EOS
   # versions; CEPH_EXPORTER_URL pins the source.
 }
 
+# Resolve the ODF operator channel resiliently. The redhat-operators catalog does
+# not always carry the channel that tracks the cluster's OCP minor -- e.g. a
+# pre-release OCP whose ODF catalog only offers a different stable-X.Y -- so a
+# hardcoded ${ODF_CHANNEL} can point at a channel that does not exist and the
+# Subscription never resolves (you then have to edit the channel by hand). Read
+# the odf-operator PackageManifest and pick: ${ODF_CHANNEL} if the catalog offers
+# it; else the catalog's defaultChannel; else the newest stable-X.Y. Falls back to
+# ${ODF_CHANNEL} if the PackageManifest is unavailable. Echoes the chosen channel.
+_odf_resolve_channel() {
+  local desired="${ODF_CHANNEL}" pm="" i default channels newest c av bv
+  for ((i=0; i<12; i++)); do
+    pm="$(oc get packagemanifest odf-operator -n openshift-marketplace \
+          -o jsonpath='{.status.defaultChannel}|{range .status.channels[*]}{.name},{end}' 2>/dev/null || true)"
+    [[ -n "$pm" && "$pm" != "|" ]] && break
+    sleep 10
+  done
+  if [[ -z "$pm" || "$pm" == "|" ]]; then
+    warn "odf-operator PackageManifest unavailable; using ${desired}"
+    echo "$desired"; return
+  fi
+  default="${pm%%|*}"; channels="${pm#*|}"
+  if [[ ",${channels}" == *",${desired},"* ]]; then echo "$desired"; return; fi
+  if [[ -n "$default" && ",${channels}" == *",${default},"* ]]; then echo "$default"; return; fi
+  newest=""
+  for c in ${channels//,/ }; do
+    [[ "$c" == stable-*.* ]] || continue
+    if [[ -z "$newest" ]]; then
+      newest="$c"
+    else
+      av="${c#stable-}"; bv="${newest#stable-}"
+      if (( ${av%.*} > ${bv%.*} )) || { (( ${av%.*} == ${bv%.*} )) && (( ${av#*.} > ${bv#*.} )); }; then
+        newest="$c"
+      fi
+    fi
+  done
+  [[ -n "$newest" ]] && echo "$newest" || echo "${default:-$desired}"
+}
+
 # Install the ODF operator from the Red Hat catalog via OLM (AllNamespaces via
 # the standard openshift-storage OperatorGroup that ODF ships with).
 odf_install_operator() {
-  log "Installing ODF operator (channel ${ODF_CHANNEL}) into ${ODF_NAMESPACE}"
+  local channel; channel="$(_odf_resolve_channel)"
+  if [[ "$channel" != "${ODF_CHANNEL}" ]]; then
+    log "ODF channel ${ODF_CHANNEL} not offered by the catalog; using ${channel} instead"
+  fi
+  log "Installing ODF operator (channel ${channel}) into ${ODF_NAMESPACE}"
   oc apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -399,7 +441,7 @@ metadata:
   name: odf-operator
   namespace: ${ODF_NAMESPACE}
 spec:
-  channel: ${ODF_CHANNEL}
+  channel: ${channel}
   name: odf-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
