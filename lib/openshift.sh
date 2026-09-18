@@ -6,6 +6,27 @@
 
 MIRROR="https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCP_VERSION}"
 
+# Fail fast on a bad OCP_VERSION. os_host_tools/os_local_oc download the
+# installer and client from ${MIRROR}; an invalid version otherwise surfaces as
+# a curl 404 deep into create -- after the EC2 instance is already running and
+# billing. Probe the exact artifact the install will fetch (public mirror,
+# reachable from the operator's machine) and die with a clear message if the
+# version does not resolve to a real release.
+validate_ocp_version() {
+  log "Validating OCP version '${OCP_VERSION}'"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --head --max-time 30 \
+    "${MIRROR}/openshift-install-linux.tar.gz" 2>/dev/null || true)"
+  if [[ "$code" != "200" ]]; then
+    die "OCP_VERSION '${OCP_VERSION}' is not valid: no OpenShift release found on the mirror (HTTP ${code:-no response}).
+    Looked for: ${MIRROR}/openshift-install-linux.tar.gz
+    Set OCP_VERSION to a version that exists under
+    https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/
+    e.g. a release (4.22.13, 5.0.0-rc.2) or a channel alias (stable-4.22, latest-4.22)."
+  fi
+  ok "OCP version '${OCP_VERSION}' available on the mirror"
+}
+
 # Download openshift-install + oc onto the EC2 host.
 os_host_tools() {
   log "Fetching openshift-install + oc (${OCP_VERSION}) on host"
