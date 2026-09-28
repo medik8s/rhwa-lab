@@ -113,6 +113,104 @@ aws_sg_allow() {
   ok "Allowed ${cidr} on ports 22/80/443/6443"
 }
 
+# Validate a requested IOPS / throughput pair against the guard bounds and the
+# gp3 ratio rule. Empty values are skipped (each is independently optional). The
+# 3rd arg is the "effective" IOPS used for the ratio test when throughput is set
+# without a matching IOPS (the volume's current IOPS, or 3000 baseline at launch).
+#   $1 = iops|""   $2 = throughput|""   $3 = effective iops for the ratio check
+_validate_disk_perf() {
+  local iops="$1" tput="$2" eff="$3"
+  if [[ -n "$iops" ]]; then
+    [[ "$iops" =~ ^[0-9]+$ ]] && (( iops >= 3000 && iops <= EC2_MAX_IOPS )) \
+      || die "IOPS must be an integer 3000-${EC2_MAX_IOPS} (got '${iops}')"
+  fi
+  if [[ -n "$tput" ]]; then
+    [[ "$tput" =~ ^[0-9]+$ ]] && (( tput >= 125 && tput <= EC2_MAX_THROUGHPUT )) \
+      || die "throughput must be an integer 125-${EC2_MAX_THROUGHPUT} MiB/s (got '${tput}')"
+    # gp3 caps throughput at 0.25 MiB/s per provisioned IOPS (one EBS I/O ≤ 256 KiB),
+    # so throughput*4 must not exceed the (effective) IOPS.
+    (( tput * 4 <= eff )) \
+      || die "throughput ${tput} MiB/s needs IOPS >= $(( tput * 4 )) (0.25 MiB/s per IOPS); ${eff} IOPS allows <= $(( eff / 4 )) MiB/s"
+  fi
+}
+
+# Build the run-instances block-device-mapping for the gp3 root volume. If
+# EC2_VOLUME_IOPS / EC2_VOLUME_THROUGHPUT are set, provision above the free gp3
+# baseline (3,000 IOPS / 125 MiB/s) at launch; otherwise leave them out so the
+# volume uses the baseline.  $1 = root device name.
+_root_ebs_mapping() {
+  local root_dev="$1" ebs="VolumeSize=${EC2_VOLUME_SIZE_GB},VolumeType=gp3,DeleteOnTermination=true"
+  _validate_disk_perf "${EC2_VOLUME_IOPS}" "${EC2_VOLUME_THROUGHPUT}" "${EC2_VOLUME_IOPS:-3000}"
+  [[ -n "${EC2_VOLUME_IOPS}" ]]       && ebs+=",Iops=${EC2_VOLUME_IOPS}"
+  [[ -n "${EC2_VOLUME_THROUGHPUT}" ]] && ebs+=",Throughput=${EC2_VOLUME_THROUGHPUT}"
+  echo "DeviceName=${root_dev},Ebs={${ebs}}"
+}
+
+# Adjust the IOPS and/or throughput (MiB/s) of the running instance's EBS
+# volume(s) in place, with no downtime (EBS Elastic Volumes). Set either or both.
+#   set-disk-perf [--iops N] [--throughput M]
+# Bounds are EC2_MAX_IOPS / EC2_MAX_THROUGHPUT (default 60000 / 1788, the
+# m8i.12xlarge instance ceiling) with the gp3 lower baseline (3000 / 125). AWS
+# allows one modification per volume per ~6 hours; the instance keeps running.
+aws_set_disk_perf() {
+  local iops="" tput=""
+  while (( $# )); do
+    case "$1" in
+      --iops)       iops="${2:-}"; shift 2 || die "set-disk-perf: --iops needs a value" ;;
+      --throughput) tput="${2:-}"; shift 2 || die "set-disk-perf: --throughput needs a value" ;;
+      -h|--help)    echo "usage: rhwa-lab set-disk-perf [--iops N (3000-${EC2_MAX_IOPS})] [--throughput M (125-${EC2_MAX_THROUGHPUT} MiB/s)]" >&2; return 0 ;;
+      *)            die "set-disk-perf: unknown argument '$1' (expected --iops and/or --throughput)" ;;
+    esac
+  done
+  [[ -n "$iops" || -n "$tput" ]] || die "set-disk-perf: specify --iops and/or --throughput"
+  # Range guards (identical to provision-time). When only --throughput is given
+  # the ratio is re-checked per volume below against that volume's current IOPS.
+  _validate_disk_perf "$iops" "$tput" "${iops:-$(( EC2_MAX_THROUGHPUT * 4 ))}"
+  local iid; iid="$(state_get instance_id)"
+  [[ -n "$iid" ]] || die "No instance recorded for '${CLUSTER_NAME}'; run create first."
+  local vols; vols="$(aws ec2 describe-instances --instance-ids "$iid" \
+    --query 'Reservations[].Instances[].BlockDeviceMappings[].Ebs.VolumeId' --output text)"
+  [[ -n "$vols" && "$vols" != "None" ]] || die "No EBS volumes found on instance ${iid}."
+  local v eff mods=0
+  for v in $vols; do
+    # When raising only throughput, the ceiling is 0.25 MiB/s x the volume's
+    # CURRENT IOPS. Skip (don't fail the whole run) a volume that can't take it.
+    if [[ -n "$tput" && -z "$iops" ]]; then
+      eff="$(aws ec2 describe-volumes --volume-ids "$v" --query 'Volumes[0].Iops' --output text 2>/dev/null || echo 3000)"
+      [[ "$eff" =~ ^[0-9]+$ ]] || eff=3000
+      if (( tput * 4 > eff )); then
+        warn "skip ${v}: throughput ${tput} MiB/s needs IOPS >= $(( tput * 4 )) but volume has ${eff}; pass --iops $(( tput * 4 )) too"
+        continue
+      fi
+    fi
+    local margs=(--volume-id "$v")
+    [[ -n "$iops" ]] && margs+=(--iops "$iops")
+    [[ -n "$tput" ]] && margs+=(--throughput "$tput")
+    log "Modifying ${v}:${iops:+ iops=${iops}}${tput:+ throughput=${tput}}"
+    if aws ec2 modify-volume "${margs[@]}" --query 'VolumeModification.ModificationState' --output text >/dev/null 2>&1; then
+      mods=$(( mods + 1 ))
+    else
+      warn "modify-volume ${v} was rejected (already modified in the last ~6h? still optimizing?)"
+    fi
+  done
+  (( mods > 0 )) || die "no volumes were modified"
+  # Wait until modifications leave the initial 'modifying' state (IOPS/tput apply
+  # once 'optimizing'); non-fatal if the wait times out.
+  log "Waiting for ${mods} volume modification(s) to apply..."
+  local i state done_all
+  for ((i=0; i<40; i++)); do
+    done_all=yes
+    for v in $vols; do
+      state="$(aws ec2 describe-volumes-modifications --volume-id "$v" \
+        --query 'VolumesModifications[0].ModificationState' --output text 2>/dev/null || echo '')"
+      [[ "$state" == "optimizing" || "$state" == "completed" || -z "$state" || "$state" == "None" ]] || done_all=no
+    done
+    [[ "$done_all" == "yes" ]] && break
+    sleep 15
+  done
+  ok "Applied${iops:+ IOPS=${iops}}${tput:+ throughput=${tput}MiB/s} to ${mods} volume(s) on ${iid} (live; may keep optimizing briefly)"
+}
+
 aws_launch_instance() {
   if state_has instance_id; then
     log "Instance already recorded ($(state_get instance_id)); skipping launch"
@@ -146,7 +244,7 @@ aws_launch_instance() {
       --key-name "$KEYPAIR_NAME" \
       --security-group-ids "$(state_get sg_id)" \
       --cpu-options "NestedVirtualization=enabled" \
-      --block-device-mappings "DeviceName=${root_dev},Ebs={VolumeSize=${EC2_VOLUME_SIZE_GB},VolumeType=gp3,DeleteOnTermination=true}" \
+      --block-device-mappings "$(_root_ebs_mapping "$root_dev")" \
       --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${CLUSTER_NAME}},{Key=rhwa-lab,Value=${CLUSTER_NAME}}]" \
       --query 'Instances[0].InstanceId' --output text)"
   [[ -z "$iid" || "$iid" == "None" ]] && die "run-instances failed."

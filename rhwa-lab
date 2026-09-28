@@ -11,6 +11,7 @@
 #   ./rhwa-lab allow [IP]  Allow another IP (or 'all') through the firewall
 #   ./rhwa-lab power <on|off|reset> <node>  Out-of-band power via ssh->virsh
 #   ./rhwa-lab vms-definitions   Print node->domain/host JSON for test power control
+#   ./rhwa-lab set-disk-perf [--iops N] [--throughput M]  Adjust host EBS IOPS/throughput live
 #   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
 #   ./rhwa-lab help       Show this help
 #
@@ -41,7 +42,7 @@ source "${SELF_DIR}/lib/odf.sh"
 source "${SELF_DIR}/lib/testfence.sh"
 source "${SELF_DIR}/lib/power.sh"
 
-usage() { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 check_inputs() {
   require_cmds aws jq curl ssh scp tar openssl
@@ -176,6 +177,8 @@ cmd_power() {
 
 cmd_vms_definitions() { state_init; emit_vms_definitions; }
 
+cmd_set_disk_perf() { require_cmds aws; state_init; aws_set_disk_perf "$@"; }
+
 cmd_destroy() {
   require_cmds aws
   state_init
@@ -227,6 +230,7 @@ main() {
     allow)   cmd_allow   "$@" ;;
     power)   cmd_power   "$@" ;;
     vms-definitions) cmd_vms_definitions "$@" ;;
+    set-disk-perf) cmd_set_disk_perf "$@" ;;
     destroy) cmd_destroy "$@" ;;
     status)  cmd_status  "$@" ;;
     help|-h|--help) usage ;;
