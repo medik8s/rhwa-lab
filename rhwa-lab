@@ -96,6 +96,7 @@ EOF
 cmd_create() {
   _RHWA_IN_CREATE=yes
   check_inputs
+  validate_ocp_version
   state_init
   log "Creating RHWA lab '${CLUSTER_NAME}' (${INSTANCE_TYPE}, OCP ${OCP_VERSION})"
   aws_preflight
