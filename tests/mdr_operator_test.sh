@@ -3,7 +3,11 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }
-export RHWA_NAMESPACE=openshift-workload-availability RHWA_CHANNEL=stable
+# Pin the catalog (OLM) install path: this test asserts every operator is a
+# Subscription, which is the catalog behavior (make-based installs render on the
+# host instead). See rhwa_install_test.sh for the make/dispatch coverage.
+export RHWA_NAMESPACE=openshift-workload-availability RHWA_CHANNEL=stable \
+       RHWA_INSTALL_METHOD=catalog
 OUT="$(mktemp "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
 # Source rhwa.sh first to get the function
 source "${DIR}/../lib/rhwa.sh"

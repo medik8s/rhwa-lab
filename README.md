@@ -107,6 +107,42 @@ as it goes, so `destroy` always cleans up what was created even after a partial
 run. The agent ISO is built **exactly once** per lab (`agent_image_built` marker)
 because rebuilding regenerates the cluster's certs — see rough edge #7.
 
+### RHWA operator install method (from source, or catalog)
+
+Because this lab targets development work, `create` installs the RHWA operators
+**from source by default** rather than from a released catalog bundle — so you
+test HEAD (or a PR), not the last release. For each operator, `rhwa-lab` clones
+the repo on the EC2 host and runs the operator's own medik8s `tools/dev.mk`
+target **`make dev-olm-deploy SKIP_KIND=true`**, which builds the operator + OLM
+bundle images from source, pushes them to a registry, and `operator-sdk run
+bundle`s the operator into `RHWA_NAMESPACE`. Because it installs via **OLM**, the
+operator lands in the same namespace the lab already uses and **OLM injects the
+webhook certs** (no cert-manager wiring needed). The `make` targets run on the
+host (go/make/git are installed there on demand; podman + oc are already
+present), and the lab pushes its verified kubeconfig to the host for them.
+
+Not every operator supports this flow yet. Operators without the `dev.mk` flow
+(currently `machine-deletion-remediation`) — and any `make` install that fails —
+**fall back to an OLM Subscription** from `redhat-operators` automatically.
+
+Controls:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RHWA_INSTALL_METHOD` | `make` | Global default: `make` (dev-olm-deploy from source) or `catalog`. `catalog` puts every operator back on OLM subscriptions. |
+| `<OP>_INSTALL_METHOD` | — | Per-operator override, e.g. `NODE_MAINTENANCE_OPERATOR_INSTALL_METHOD=catalog`. |
+| `<OP>_REPO` / `_REF` | upstream `main` | Point one operator at a fork/branch/SHA (e.g. a PR under test) while the rest track `main`. |
+| `<OP>_DEV_ENV` | — | Extra `make` variables for that operator's `dev-olm-deploy`. NHC needs its related images as digests; the lab **auto-resolves** them from `quay.io/medik8s/node-remediation-console:latest` and `quay.io/medik8s/must-gather:latest` (override the source tags with `NHC_CONSOLE_PLUGIN_REF` / `NHC_MUST_GATHER_REF`, or the whole thing with `NODE_HEALTHCHECK_OPERATOR_DEV_ENV="CONSOLE_PLUGIN_IMAGE=<digest> MUST_GATHER_IMAGE=<digest>"`). |
+| `RHWA_OPERATORS` | the six RHWA operators | Space-separated list to install (NHC, FAR, SNR, NMO, MDR, SBR). |
+| `RHWA_DEV_REGISTRY` | dev.mk default (`ttl.sh` for external) | Registry the bundle images are pushed to and the cluster pulls from. `ttl.sh` is anonymous/ephemeral and needs cluster egress to it. |
+| `RHWA_DEV_VERSION` | each repo's `DEFAULT_VERSION` | Bundle `VERSION` override (usually leave empty). |
+
+`<OP>` is the operator name upper-snake-cased (`fence-agents-remediation` →
+`FENCE_AGENTS_REMEDIATION`). Every operator — `make` or `catalog` — installs via
+OLM, so readiness waits on the CSV reaching `Succeeded`. To test a local branch,
+set e.g. `FENCE_AGENTS_REMEDIATION_REF=my-branch` (the image is built from that
+checkout).
+
 ### OpenShift Data Foundation (external Ceph)
 
 `create` also stands up **OpenShift Data Foundation (ODF) in external mode**,
@@ -186,9 +222,21 @@ These are the spots most likely to need a fix on the first real run:
 4. **`fence_redfish` valueless flags** — `--ssl-insecure` is passed with an
    empty value; FAR's parameter handling may need adjustment (check FAR pod
    logs during `test`).
-5. **Operator package names/channels** in the Red Hat catalog
-   (`node-healthcheck-operator`, `fence-agents-remediation`,
-   `self-node-remediation`, `node-maintenance-operator`, channel `stable`).
+5. **Operator install** — defaults to `make dev-olm-deploy` from each repo's
+   `main` (see "RHWA operator install method"); `machine-deletion-remediation`
+   and any failed `make` install fall back to the catalog. For the `make` path:
+   the host needs egress to the image registry (`ttl.sh` by default) and the
+   cluster must be able to pull from it; NHC's related-image digests are
+   auto-resolved from `quay.io/medik8s` (needs `oc image info` egress);
+   `dev-olm-deploy` builds images with rootless podman on the host. For the
+   catalog path, confirm the package names (`node-healthcheck-operator`,
+   `fence-agents-remediation`, `self-node-remediation`, `node-maintenance-operator`,
+   `machine-deletion-remediation`, `storage-based-remediation`) and channel
+   (`stable`) in `redhat-operators` — SBR in particular may not be in the
+   released catalog yet, so its catalog *fallback* can no-op; it installs from
+   source (`make`) by default. Installing SBR only deploys the operator; it also
+   needs a `StorageBasedRemediationConfig` CR (and suitable storage) to provision
+   its agent DaemonSet — out of scope for the operator install here.
 8. **BareMetalHost BMC wiring** — each node's BMH is populated with its
    sushy-tools `bmc.address` (`redfish-virtualmedia://…`) + credentials Secret,
    so metal3/ironic power-manages it in addition to FAR. Both drive the same

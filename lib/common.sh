@@ -40,7 +40,37 @@
 
 # RHWA
 : "${RHWA_NAMESPACE:=openshift-workload-availability}"
-: "${RHWA_CHANNEL:=stable}"
+: "${RHWA_CHANNEL:=stable}"                # OLM channel for the `catalog` install method
+# Install method for the RHWA operators. This lab targets development work, so it
+# defaults to deploying each operator from source via the operator's own medik8s
+# tools/dev.mk `make dev-olm-deploy` (build operator+bundle images, push to a
+# registry, `operator-sdk run bundle` into RHWA_NAMESPACE so OLM manages it and
+# injects webhook certs) -- HEAD instead of a released catalog bundle. Not every
+# operator supports that flow yet; ones that don't (and any `make` install that
+# fails) fall back to the OLM catalog. Global default here; override per operator
+# with <OPERATOR_NAME_UPPER_SNAKE>_INSTALL_METHOD (e.g.
+# NODE_MAINTENANCE_OPERATOR_INSTALL_METHOD=catalog). Per operator you can also set
+# _REPO and _REF (branch/tag/SHA) to point one operator at a PR while the rest
+# track main, and _DEV_ENV for extra `make` variables -- notably NHC requires
+# NODE_HEALTHCHECK_OPERATOR_DEV_ENV="CONSOLE_PLUGIN_IMAGE=<digest> MUST_GATHER_IMAGE=<digest>".
+: "${RHWA_INSTALL_METHOD:=make}"           # make | catalog
+: "${RHWA_OPERATORS:=node-healthcheck-operator fence-agents-remediation self-node-remediation node-maintenance-operator machine-deletion-remediation storage-based-remediation}"
+# `make dev-olm-deploy` runs on the EC2 host (go/make/git are installed there on
+# demand; podman + oc are already present) and needs a registry the cluster can
+# pull from. Empty lets dev.mk pick its default (ttl.sh for an external cluster:
+# anonymous, ephemeral, needs cluster egress to ttl.sh). VERSION empty lets each
+# operator's DEFAULT_VERSION apply. The lab's verified kubeconfig is pushed to the
+# host at ~/${RHWA_DEV_KUBECONFIG} for the on-host make to use.
+: "${RHWA_DEV_REGISTRY:=}"                  # e.g. ttl.sh, or an internal registry
+: "${RHWA_DEV_VERSION:=}"                   # bundle VERSION override (usually leave empty)
+: "${RHWA_DEV_KUBECONFIG:=rhwa-dev.kubeconfig}"
+# operator-sdk's `run bundle` default 2m timeout is too short for a CSV's
+# deployment to pull+roll out on this slow nested cluster. The lab clones the
+# medik8s tools repo to ~/${RHWA_DEV_TOOLS_DIR}, patches dev.mk's run-bundle line
+# to use RHWA_DEV_BUNDLE_TIMEOUT, and points the operators at it via TOOLS_DIR
+# (which also stops each one re-downloading tools).
+: "${RHWA_DEV_TOOLS_DIR:=rhwa-tools}"
+: "${RHWA_DEV_BUNDLE_TIMEOUT:=10m}"
 
 # ---------------------------------------------------------------------------
 # ODF (OpenShift Data Foundation) in EXTERNAL mode, backed by a single-host
