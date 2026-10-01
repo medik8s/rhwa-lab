@@ -52,9 +52,36 @@ Usage:
   ./rhwa-lab allow [IP]  Allow another IP (or 'all') through the firewall
   ./rhwa-lab power <on|off|reset> <node>  Out-of-band power via ssh->virsh
   ./rhwa-lab vms-definitions   Print node->domain/host JSON for test power control
+  ./rhwa-lab set-disk-perf [--iops N] [--throughput M]  Adjust host EBS IOPS/throughput live
   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
   ./rhwa-lab help       Show this help
 ```
+
+### Disk performance (host EBS volume)
+
+The host's gp3 root volume backs the whole lab (host OS + every node/OSD
+qcow2), so gp3's free baseline of **3,000 IOPS / 125 MiB/s** can bottleneck Ceph
+under load (`slow ops in BlueStore`). The lab therefore provisions the volume at
+**12,000 IOPS / 500 MiB/s by default** (`EC2_VOLUME_IOPS` / `EC2_VOLUME_THROUGHPUT`).
+Two knobs control it:
+
+- **At provision time**, set `EC2_VOLUME_IOPS` and/or `EC2_VOLUME_THROUGHPUT`
+  before `create` (default `12000` / `500`; set either to empty for gp3's free
+  baseline). Each is independent: set only IOPS, only throughput, or both.
+- **Live, on a running instance**, `./rhwa-lab set-disk-perf [--iops N]
+  [--throughput M]` modifies every attached volume in place with no downtime
+  (EBS Elastic Volumes). Pass either flag or both. AWS allows one modification
+  per volume per **~6 hours**, and the change keeps "optimizing" briefly after.
+
+Bounds (both paths): IOPS **3,000–`EC2_MAX_IOPS`** and throughput
+**125–`EC2_MAX_THROUGHPUT` MiB/s**, defaulting to the m8i.12xlarge instance EBS
+ceiling (**60,000 IOPS / 1,788 MiB/s**) rather than gp3's per-volume max
+(80,000 / 2,000), because the instance can't deliver more than that regardless.
+Override `EC2_MAX_IOPS`/`EC2_MAX_THROUGHPUT` if you change `INSTANCE_TYPE` or use
+EBS bandwidth weighting. Throughput is additionally capped at **0.25 MiB/s per
+provisioned IOPS** (a gp3 rule): raising throughput may require raising IOPS
+too — e.g. 1,000 MiB/s needs ≥ 4,000 IOPS. IOPS alone does not raise the
+throughput ceiling; provision both to lift both.
 
 ### Spare workers (for post-install tests)
 

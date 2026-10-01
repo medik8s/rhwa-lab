@@ -126,6 +126,22 @@ else
   _ec2_vol_default=1000
 fi
 : "${EC2_VOLUME_SIZE_GB:=${_ec2_vol_default}}"
+# Provision-time IOPS/throughput for the gp3 root volume, applied in the launch
+# block-device-mapping. Defaults to 12,000 IOPS / 500 MiB/s -- above gp3's free
+# 3,000/125 baseline -- to give the shared volume headroom for Ceph + etcd + the
+# node VMs (baseline contention is what surfaces BlueStore slow ops). Set either
+# to empty for the free baseline, or to any value within EC2_MAX_IOPS /
+# EC2_MAX_THROUGHPUT (below). To change a RUNNING instance's volume instead, use
+# `./rhwa-lab set-disk-perf`.
+: "${EC2_VOLUME_IOPS:=12000}"
+: "${EC2_VOLUME_THROUGHPUT:=500}"
+# Upper bounds for provisioned IOPS/throughput, enforced at provision time and by
+# `set-disk-perf`. Capped at the m8i.12xlarge instance EBS ceiling (60,000 IOPS /
+# 1,875 MB/s ≈ 1,788 MiB/s), not gp3's per-volume max (80,000 / 2,000), since the
+# instance can't use more than it delivers. Override if you change INSTANCE_TYPE
+# or use EBS bandwidth weighting. (Lower bounds are gp3's baseline: 3,000 / 125.)
+: "${EC2_MAX_IOPS:=60000}"
+: "${EC2_MAX_THROUGHPUT:=1788}"
 
 # Derived paths
 LAB_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
