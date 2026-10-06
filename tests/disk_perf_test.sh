@@ -25,9 +25,10 @@ case "$out" in *"Throughput=1000"*) ;; *) echo "FAIL: missing Throughput: $out";
 # Out-of-range provision values are rejected before launch.
 ( EC2_VOLUME_IOPS=99999 _root_ebs_mapping /dev/sda1 ) 2>/dev/null && { echo "FAIL: IOPS above EC2_MAX_IOPS accepted"; exit 1; } || true
 ( EC2_VOLUME_IOPS=100   _root_ebs_mapping /dev/sda1 ) 2>/dev/null && { echo "FAIL: IOPS below baseline accepted"; exit 1; } || true
-# Throughput without enough IOPS for the 0.25 MiB/s-per-IOPS ratio is rejected
-# (default baseline 3000 IOPS only supports 750 MiB/s).
-( EC2_VOLUME_THROUGHPUT=1000 _root_ebs_mapping /dev/sda1 ) 2>/dev/null && { echo "FAIL: throughput exceeding ratio at baseline accepted"; exit 1; } || true
+# Throughput without enough IOPS for the 0.25 MiB/s-per-IOPS ratio is rejected.
+# IOPS pinned empty (=baseline 3000, which only supports 750 MiB/s) so this
+# tests the ratio, not the 12000 provision default.
+( EC2_VOLUME_IOPS= EC2_VOLUME_THROUGHPUT=1000 _root_ebs_mapping /dev/sda1 ) 2>/dev/null && { echo "FAIL: throughput exceeding ratio at baseline accepted"; exit 1; } || true
 
 # ---- live set-disk-perf -----------------------------------------------------
 state_get(){ [[ "$1" == instance_id ]] && echo i-abc || echo ""; }

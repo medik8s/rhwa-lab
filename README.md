@@ -60,12 +60,14 @@ Usage:
 ### Disk performance (host EBS volume)
 
 The host's gp3 root volume backs the whole lab (host OS + every node/OSD
-qcow2), so its EBS baseline of **3,000 IOPS / 125 MiB/s** can bottleneck Ceph
-under load (`slow ops in BlueStore`). Two knobs raise it:
+qcow2), so gp3's free baseline of **3,000 IOPS / 125 MiB/s** can bottleneck Ceph
+under load (`slow ops in BlueStore`). The lab therefore provisions the volume at
+**12,000 IOPS / 500 MiB/s by default** (`EC2_VOLUME_IOPS` / `EC2_VOLUME_THROUGHPUT`).
+Two knobs control it:
 
-- **At provision time**, export `EC2_VOLUME_IOPS` and/or `EC2_VOLUME_THROUGHPUT`
-  before `create` to launch the volume above baseline. Each is independent: set
-  only IOPS, only throughput, or both.
+- **At provision time**, set `EC2_VOLUME_IOPS` and/or `EC2_VOLUME_THROUGHPUT`
+  before `create` (default `12000` / `500`; set either to empty for gp3's free
+  baseline). Each is independent: set only IOPS, only throughput, or both.
 - **Live, on a running instance**, `./rhwa-lab set-disk-perf [--iops N]
   [--throughput M]` modifies every attached volume in place with no downtime
   (EBS Elastic Volumes). Pass either flag or both. AWS allows one modification
