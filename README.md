@@ -35,7 +35,7 @@ quota (~48). A Red Hat pull secret with Red Hat registry entitlement.
 # All inputs come from environment variables (no config/secrets file).
 export ODF_ENABLED=false # optional. ODF is enabled by default
 export OCP_VERSION=stable-4.22 # optional. Can be any OCP Release https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/ stable-4.22, 5.0.0-rc.1, etc.
-export ROUTE53_ZONE_ID=
+export BASE_DOMAIN=example.com # replace with a domain served by your Route53 hosted zone
 export CLUSTER_NAME=
 export SSH_PUBLIC_KEY_FILE=
 export PULL_SECRET=
@@ -56,6 +56,18 @@ Usage:
   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
   ./rhwa-lab help       Show this help
 ```
+
+Set `BASE_DOMAIN` to the domain you want to use for the cluster. It defaults to
+`migration.redhat.com` and controls both the OpenShift install configuration and
+the DNS names (`api.<CLUSTER_NAME>.<BASE_DOMAIN>` and
+`*.apps.<CLUSTER_NAME>.<BASE_DOMAIN>`).
+
+`ROUTE53_ZONE_ID` is optional. When unset, the script looks up a hosted zone for
+`BASE_DOMAIN`, then tries its parent domains if needed. For example,
+`BASE_DOMAIN=lab.example.com` can use the hosted zone for `example.com`.
+To select a zone explicitly, set `ROUTE53_ZONE_ID` to its ID (`Z...`) or domain
+name. This does **not** change `BASE_DOMAIN`; the selected zone must serve that
+domain. Leave `ROUTE53_ZONE_ID` unset for automatic lookup.
 
 ### Disk performance (host EBS volume)
 
