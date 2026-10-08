@@ -6,3 +6,5 @@ bin/
 *.iso
 auth/
 .openshift_install.log
+.DS_Store
+
