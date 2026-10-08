@@ -35,7 +35,7 @@ quota (~48). A Red Hat pull secret with Red Hat registry entitlement.
 # All inputs come from environment variables (no config/secrets file).
 export ODF_ENABLED=false # optional. ODF is enabled by default
 export OCP_VERSION=stable-4.22 # optional. Can be any OCP Release https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/ stable-4.22, 5.0.0-rc.1, etc.
-export BASE_DOMAIN=example.com # replace with a domain served by your Route53 hosted zone
+export BASE_DOMAIN=migration.redhat.com # optional; replace with a domain served by your Route53 hosted zone
 export CLUSTER_NAME=
 export SSH_PUBLIC_KEY_FILE=
 export PULL_SECRET=
