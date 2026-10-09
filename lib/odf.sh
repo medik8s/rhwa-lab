@@ -22,19 +22,13 @@
 # The ceph VM is NOT an OpenShift node: no BMH, no fencing, not in compute_nodes.
 # It is reachable only from the EC2 host, so every command hops ssh_host -> VM.
 
-# SSH into the ceph VM the same way it works by hand: connect to the EC2 host,
-# then run `ssh` to the VM FROM the host, with the operator's ssh-agent forwarded
-# (-A). We deliberately do NOT use a -W/ProxyJump tunnel: that makes the host's
-# sshd open the forwarded TCP connection to the VM, which this environment
-# refuses ("connect failed") even though a normal host->VM ssh works. Forwarding
-# the agent (rather than assuming a passwordless key, or copying a key to the
-# host) means the operator's passphrase-protected key -- already unlocked in
-# their local agent -- authenticates the host->VM hop. StrictHostKeyChecking=no +
-# /dev/null on the inner hop so a reprovisioned VM's changed host key never blocks
-# us. The node network (192.168.126.0/24) is only reachable from the host.
+# Authenticate both hops locally with the configured key; an empty forwarded
+# agent must not make a healthy VM appear unreachable. Apply the same host-key
+# options to the tunnel so reprovisioned hosts don't block the connection.
 _ssh_ceph() {
-  local inner="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=15 ${CEPH_SSH_USER}@${CEPH_IP}"
-  ssh -A "${_ssh_opts[@]}" "${HOST_SSH_USER}@$(host_ip)" "${inner}" "$@"
+  local jump
+  printf -v jump '%q ' ssh "${_ssh_opts[@]}" -W '%h:%p' "${HOST_SSH_USER}@$(host_ip)"
+  ssh "${_ssh_opts[@]}" -o "ProxyCommand=${jump}" "${CEPH_SSH_USER}@${CEPH_IP}" "$@"
 }
 
 # Wait until the ceph VM answers SSH. We deliberately do NOT gate on cloud-init
@@ -52,6 +46,11 @@ _ceph_wait_ssh() {
     fi
     sleep 10
   done
+  warn "Final ceph SSH attempt (errors shown):"
+  if _ssh_ceph true >&2; then
+    ok "ceph VM reachable over SSH at ${CEPH_IP}"
+    return 0
+  fi
   warn "ceph VM ${CEPH_IP} unreachable; collecting host-side diagnostics:"
   ssh_host "sudo bash -c '
     echo \"domstate: \$(virsh domstate ${CEPH_NODE_NAME} 2>&1)\"
@@ -165,7 +164,7 @@ ethernets:
     addresses:
       - ${CEPH_IP}/24
     routes:
-      - to: default
+      - to: 0.0.0.0/0
         via: ${NET_GATEWAY}
     nameservers:
       addresses:
@@ -557,7 +556,7 @@ odf_import_external() {
   # (b) the blob secret. .data values are base64, so base64(JSON) -> operator decodes it.
   # `base64 | tr -d '\n'` is portable (GNU wraps at 76 by default; macOS/BSD
   # base64 has no `-w0`), giving one unwrapped line on both.
-  local b64; b64="$(base64 "${src}" | tr -d '\n')"
+  local b64; b64="$(base64 < "${src}" | tr -d '\n')"
   oc apply -f - <<EOF
 apiVersion: v1
 kind: Secret
