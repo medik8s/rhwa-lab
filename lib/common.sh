@@ -14,11 +14,11 @@
 : "${FEDORA_RELEASE:=44}"             # host AMI: Fedora Cloud Base release
 : "${CONTROL_PLANE_COUNT:=3}"
 : "${WORKER_COUNT:=3}"
-# Spare worker VMs: defined + BMC-configured but NOT installed with the cluster
-# (excluded from install/agent config, never booted during create). Each gets a
-# provisionable, metal3-managed BareMetalHost (rootDeviceHints /dev/vda) left
-# available/unconsumed so a post-install test can provision an extra node by
-# scaling the MachineSet onto it. Set to 0 to disable.
+# Extra worker VMs: defined + BMC-configured, excluded from the agent install,
+# and initially powered off. Each gets a provisionable, metal3-managed
+# BareMetalHost (rootDeviceHints /dev/vda). Metal3 chooses initial workers from
+# the entire pool; the unconsumed hosts remain available for later MachineSet
+# scale-up. Set to 0 to disable the extra capacity.
 : "${SPARE_WORKER_COUNT:=3}"
 
 # Per-node sizing
@@ -301,13 +301,10 @@ compute_nodes() {
   RENDEZVOUS_IP="${NODE_IP[0]}"   # first master
 }
 
-# Spare worker topology (separate from compute_nodes so nothing that feeds the
-# install — install-config replicas, agent-config hosts, FAR node-params,
-# cluster-node BMHs — ever sees a spare). Names/IPs/MACs continue the worker
-# sequence (worker-<WORKER_COUNT>, worker-<WORKER_COUNT+1>, ...) so spares are
-# indistinguishable from installed workers except that they live in these arrays
-# and are left as unconsumed available BMHs; the numbering can't collide with
-# cluster nodes. "Spare" is a role in the topology, not a name prefix.
+# Extra worker topology, separate from the agent install inputs. Names/IPs/MACs
+# continue the worker sequence (worker-<WORKER_COUNT>, worker-<WORKER_COUNT+1>,
+# ...), avoiding collisions. These BMHs join the same available pool as the
+# initial workers; Metal3 may consume any of them during provisioning.
 declare -a SPARE_NAME SPARE_HOST SPARE_ROLE SPARE_IP SPARE_MAC SPARE_VCPU SPARE_RAM
 compute_spares() {
   SPARE_NAME=(); SPARE_HOST=(); SPARE_ROLE=(); SPARE_IP=(); SPARE_MAC=(); SPARE_VCPU=(); SPARE_RAM=()

@@ -15,7 +15,7 @@
 #   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
 #   ./rhwa-lab help       Show this help
 #
-# All inputs come from environment variables (see README.md). No config file.
+# Inputs come from environment variables, optionally loaded from source_me.env.
 
 set -euo pipefail
 
@@ -30,6 +30,20 @@ _cleanup_warning() {
 trap _cleanup_warning EXIT
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Load session settings before common.sh computes defaults and derived values.
+if [[ -f "${SELF_DIR}/source_me.env" ]]; then
+  printf 'Found %s. Source it for this session? [y/N] ' "${SELF_DIR}/source_me.env" >&2
+  if IFS= read -r _source_env_answer; then
+    case "$_source_env_answer" in
+      [yY]|[yY][eE][sS])
+        # shellcheck source=/dev/null
+        source "${SELF_DIR}/source_me.env"
+        ;;
+    esac
+  fi
+  unset _source_env_answer
+fi
+
 # shellcheck source=lib/common.sh
 source "${SELF_DIR}/lib/common.sh"
 source "${SELF_DIR}/lib/state.sh"
@@ -45,7 +59,7 @@ source "${SELF_DIR}/lib/power.sh"
 usage() { sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 check_inputs() {
-  require_cmds aws jq curl ssh scp tar openssl
+  require_cmds aws jq curl ssh ssh-keygen scp tar openssl
   # ROUTE53_ZONE_ID is optional: unset -> resolved from BASE_DOMAIN; may be a
   # zone id (Z...) or a domain name. See resolve_r53_zone in lib/aws.sh.
   require_env AWS_REGION PULL_SECRET
@@ -95,12 +109,12 @@ EOF
 }
 
 cmd_create() {
-  _RHWA_IN_CREATE=yes
   check_inputs
   validate_ocp_version
   state_init
   log "Creating RHWA lab '${CLUSTER_NAME}' (${INSTANCE_TYPE}, OCP ${OCP_VERSION})"
   aws_preflight
+  _RHWA_IN_CREATE=yes
   aws_import_keypair
   aws_security_group
   aws_launch_instance

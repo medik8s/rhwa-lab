@@ -19,8 +19,13 @@ no live AWS test has been performed. Expect to iterate. Design spec:
 ## Prerequisites (your machine)
 
 Runs on **Linux or macOS** (Intel or Apple Silicon). Needs `bash`, `aws` CLI
-v2, `jq`, `curl`, `ssh`/`scp`, `tar`, `openssl`, `base64` (all present by
-default on both) and an SSH keypair (`~/.ssh/id_rsa[.pub]` by default).
+v2 with EC2 nested virtualization support, `jq`, `curl`, `ssh`/`scp`, `tar`,
+`openssl`, `base64` (all present by default on both) and an SSH keypair
+(`~/.ssh/id_rsa[.pub]` by default). If preflight reports that your AWS CLI does
+not support nested virtualization, upgrade it. With Homebrew, run
+`brew update && brew upgrade awscli`.
+The host requires an Ed25519 key or an RSA key of at least 2048 bits; shorter
+RSA keys are rejected by Fedora's default cryptographic policy.
 `oc`/`openshift-install` are downloaded automatically — the local `oc` matches
 your OS/arch. No GNU coreutils required; macOS's stock `bash` 3.2 is fine.
 An AWS account allowed to manage EC2/EIP/Route53 with enough On-Demand vCPU
@@ -32,7 +37,7 @@ quota (~48). A Red Hat pull secret with Red Hat registry entitlement.
 ## Usage
 
 ```bash
-# All inputs come from environment variables (no config/secrets file).
+# Inputs come from environment variables (or the optional source_me.env file).
 export ODF_ENABLED=false # optional. ODF is enabled by default
 export OCP_VERSION=stable-4.22 # optional. Can be any OCP Release https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/ stable-4.22, 5.0.0-rc.1, etc.
 export BASE_DOMAIN=migration.redhat.com # optional; replace with a domain served by your Route53 hosted zone
@@ -56,6 +61,32 @@ Usage:
   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
   ./rhwa-lab help       Show this help
 ```
+
+The commands read their settings from exported environment variables. For an
+optional local setup file, start with the [example](source_me.env_example):
+
+```bash
+cp source_me.env_example source_me.env
+# Put your pull secret in pull-secret.txt (or set PULL_SECRET_FILE to its path).
+# Edit source_me.env: set BASE_DOMAIN; uncomment AWS settings to override your environment.
+# Check SSH_PUBLIC_KEY_FILE points to a public key with a matching private key.
+./rhwa-lab create
+```
+`source_me.env` and `pull-secret.txt` are gitignored because they can contain
+secrets. On each invocation, `rhwa-lab` checks for `source_me.env` beside the
+script and asks whether to source it for that session. Answer `y` or `yes`
+(case-insensitive) to load it before configuration defaults are computed.
+These settings apply only to that invocation; your calling shell is unchanged.
+Press Enter or decline to keep your existing environment. If the file is
+absent, startup continues without a prompt; end-of-input also skips loading.
+If sourcing fails, the command stops. You can still source the file manually;
+for unattended use, run `source source_me.env && ./rhwa-lab create </dev/null`.
+
+`./rhwa-lab test` selects a Ready dedicated worker from the live cluster and
+uses that node's InternalIP to stop kubelet. Metal3 can provision any available
+worker host, so `worker-0` is not guaranteed to be installed. Fencing mappings
+cover all worker hosts, including spares that become nodes; the test checks the
+selected node's mapping before stopping kubelet.
 
 Set `BASE_DOMAIN` to the domain you want to use for the cluster. It defaults to
 `migration.redhat.com` and controls both the OpenShift install configuration and
@@ -97,25 +128,27 @@ throughput ceiling; provision both to lift both.
 
 ### Spare workers (for post-install tests)
 
-`create` also defines `SPARE_WORKER_COUNT` (default **3**) extra worker VM(s)
-that are **not** part of the install: excluded from install-config/agent-config
-and never booted during `create`. They continue the worker numbering (with
-`WORKER_COUNT=3` the spares are `worker-3`, `worker-4`, `worker-5`) — there is no
-`-spare-` name prefix; "spare" just means an unconsumed `available` host. Each
-gets its sushy-tools Redfish BMC plus a
-provisionable, metal3-managed `BareMetalHost` in `openshift-machine-api`
+`create` also defines `SPARE_WORKER_COUNT` (default **3**) extra worker VM(s),
+excluded from the agent install and initially powered off. They continue the
+worker numbering (with `WORKER_COUNT=3` the extra hosts are `worker-3`,
+`worker-4`, `worker-5`) — there is no `-spare-` name prefix. Each gets its
+sushy-tools Redfish BMC plus a provisionable, metal3-managed `BareMetalHost`
+in `openshift-machine-api`
 (`bmc.address`/credentials set, `rootDeviceHints: /dev/vda`, **not**
-externallyProvisioned) that metal3 inspects and leaves **`available`** — an
-unconsumed host ready to be provisioned. To use one in a test, scale the
-baremetal MachineSet up; metal3 consumes an `available` BMH and provisions it:
+externallyProvisioned) that metal3 inspects and makes **`available`**. During
+post-install provisioning, Metal3 selects `WORKER_COUNT` hosts from the whole
+worker pool, including these extra hosts. The remaining available hosts provide
+spare capacity; their worker numbers need not be consecutive. To use one in a
+test, scale the baremetal MachineSet up; metal3 consumes an `available` BMH and
+provisions it:
 
 ```bash
 oc -n openshift-machine-api scale machineset <machineset> --replicas=<n>
 # metal3 picks up an available BMH and provisions it onto the new Machine
 ```
 
-Set `SPARE_WORKER_COUNT=0` to disable. Spares still add ~4 vCPU each *only when
-provisioned* by a test.
+Set `SPARE_WORKER_COUNT=0` to disable extra capacity. Additional nodes use
+~4 vCPU each *only when provisioned*.
 
 ### Reprovisionable workers
 
@@ -258,9 +291,10 @@ These are the spots most likely to need a fix on the first real run:
 2. **RHCOS NIC name** — agent-config assumes `enp1s0`; may differ by machine
    type (nmstate matches by MAC as a hedge).
 3. **cdrom target dev** for the agent ISO in libvirt (`sda` vs `hda`).
-4. **`fence_redfish` valueless flags** — `--ssl-insecure` is passed with an
-   empty value; FAR's parameter handling may need adjustment (check FAR pod
-   logs during `test`).
+4. **`fence_redfish` valueless flags** — Keep `--ssl-insecure` as an empty
+   string in the FAR template so FAR passes the flag without an argument.
+   Giving it a value such as `"1"` makes `fence_redfish` reject the command;
+   see the [fencing incident note](docs/fence-redfish-ssl-insecure-pr-note.md).
 5. **Operator install** — defaults to `make dev-olm-deploy` from each repo's
    `main` (see "RHWA operator install method"); `machine-deletion-remediation`
    and any failed `make` install fall back to the catalog. For the `make` path:
@@ -276,19 +310,6 @@ These are the spots most likely to need a fix on the first real run:
    source (`make`) by default. Installing SBR only deploys the operator; it also
    needs a `StorageBasedRemediationConfig` CR (and suitable storage) to provision
    its agent DaemonSet — out of scope for the operator install here.
-8. **BareMetalHost BMC wiring** — each node's BMH is populated with its
-   sushy-tools `bmc.address` (`redfish-virtualmedia://…`) + credentials Secret,
-   so metal3/ironic power-manages it in addition to FAR. Both drive the same
-   Redfish endpoint; if you see unexpected power actions, this is the place to
-   look. Masters keep `externallyProvisioned: true` (BMC only — never
-   `bootMACAddress`/`rootDeviceHints`) so ironic power-manages but never
-   re-provisions the running control plane; workers/spares are born
-   provisionable (see "Reprovisionable workers" below). The virtual-media driver
-   needs UEFI + a cdrom (both present). `SUSHY_EMULATOR_IGNORE_BOOT_DEVICE=False`
-   is required so ironic's per-device boot override is honored during
-   provisioning. Fencing stays safe because existing nodes boot disk first (boot
-   order 1) and `fence_redfish` sends `ForceRestart` with **no** boot-device
-   override, so a fence reboot returns to disk, not to the attached media.
 6. **Host distro** — the EC2 host runs **Fedora Cloud Base** (owner
    `125523088429`, release `FEDORA_RELEASE`, default 44), which ships the full
    virtualization stack; AL2023 does not. Override the image with `HOST_AMI`
@@ -302,6 +323,19 @@ These are the spots most likely to need a fix on the first real run:
    rebuild, `destroy` and `create` again. As a safety net, `os_wait_install`
    verifies the fetched kubeconfig actually authenticates and, if not, recovers
    a working cluster-admin kubeconfig from a master's recovery kubeconfig.
+8. **BareMetalHost BMC wiring** — each node's BMH is populated with its
+   sushy-tools `bmc.address` (`redfish-virtualmedia://…`) + credentials Secret,
+   so metal3/ironic power-manages it in addition to FAR. Both drive the same
+   Redfish endpoint; if you see unexpected power actions, this is the place to
+   look. Masters keep `externallyProvisioned: true` (BMC only — never
+   `bootMACAddress`/`rootDeviceHints`) so ironic power-manages but never
+   re-provisions the running control plane; workers/spares are born
+   provisionable (see "Reprovisionable workers" below). The virtual-media driver
+   needs UEFI + a cdrom (both present). `SUSHY_EMULATOR_IGNORE_BOOT_DEVICE=False`
+   is required so ironic's per-device boot override is honored during
+   provisioning. Fencing stays safe because existing nodes boot disk first (boot
+   order 1) and `fence_redfish` sends `ForceRestart` with **no** boot-device
+   override, so a fence reboot returns to disk, not to the attached media.
 9. **ODF operator channel** — `ODF_CHANNEL` is derived from `OCP_VERSION`
    (`stable-4.NN`). Confirm that channel actually exists for the `odf-operator`
    package in the redhat-operators catalog on your cluster; ODF channels can lag

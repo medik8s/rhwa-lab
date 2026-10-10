@@ -355,7 +355,7 @@ os_wait_cluster_ready() {
 # wait for that many worker Nodes to be Ready. Scale is used ONLY to add
 # workers; targeted removal in tests must delete a specific Machine instead.
 os_provision_workers() {
-  local mapi="openshift-machine-api" ms i ready
+  local mapi="openshift-machine-api" ms i ready nodes
   ms="$(oc -n "$mapi" get machineset -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
   [[ -n "$ms" ]] || die "no baremetal MachineSet found; cannot provision workers"
   log "Scaling MachineSet ${ms} to ${WORKER_COUNT} workers"
@@ -366,10 +366,13 @@ os_provision_workers() {
     # the control plane schedulable, so masters carry the worker role too; the
     # `!control-plane` term excludes them, otherwise the 3 masters alone satisfy
     # WORKER_COUNT and this returns instantly with zero real workers.
-    # Non-fatal under `set -o pipefail`: a transient `oc get nodes` failure
-    # yields 0 (retry next poll) instead of aborting the whole run.
-    ready="$( { oc get nodes -l 'node-role.kubernetes.io/worker=,!node-role.kubernetes.io/control-plane' --no-headers 2>/dev/null \
-             | awk '$2=="Ready"' | wc -l; } || echo 0)"
+    # A transient API error counts as 0 and is retried on the next poll.
+    if nodes="$(oc get nodes -l 'node-role.kubernetes.io/worker=,!node-role.kubernetes.io/control-plane' --no-headers 2>&1)"; then
+      ready="$(awk '$2=="Ready" { count++ } END { print count+0 }' <<< "$nodes")"
+    else
+      warn "Could not query worker nodes: ${nodes}"
+      ready=0
+    fi
     if (( ready >= WORKER_COUNT )); then
       ok "${ready} worker nodes Ready"
       os_unschedule_masters

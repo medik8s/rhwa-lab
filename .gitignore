@@ -1,6 +1,10 @@
 # Per-cluster state and any rendered secrets (never commit)
 state/
 
+# Local env vars for testing
+*.env
+pull-secret.txt
+
 # Downloaded tooling / generated cluster artifacts
 bin/
 *.iso

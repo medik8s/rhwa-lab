@@ -321,12 +321,19 @@ _wait_snr_config() {
 # Build the per-node "--systems-uri" nodeparameters block (Node name -> URI).
 _far_nodeparams() {
   compute_nodes
+  compute_spares
   local i uuid
   echo "        \"--systems-uri\":"
   for i in "${!NODE_NAME[@]}"; do
     uuid="$(state_get "uuid_${NODE_NAME[$i]}")"
     # Key is the Kubernetes Node name (= hostname we assigned).
     echo "          \"${NODE_HOST[$i]}\": \"/redfish/v1/Systems/${uuid}\""
+  done
+  # Metal3 chooses from the whole available pool, so any spare can become a
+  # running worker during initial provisioning or a later MachineSet scale-up.
+  for i in "${!SPARE_NAME[@]}"; do
+    uuid="$(state_get "uuid_${SPARE_NAME[$i]}")"
+    echo "          \"${SPARE_HOST[$i]}\": \"/redfish/v1/Systems/${uuid}\""
   done
 }
 
@@ -348,7 +355,7 @@ spec:
         "--ipport": "${SUSHY_PORT}"
         "--username": "${SUSHY_USER}"
         "--password": "${SUSHY_PASS}"
-        "--ssl-insecure": "1"
+        "--ssl-insecure": ""
       nodeparameters:
 $(_far_nodeparams)
 EOF
