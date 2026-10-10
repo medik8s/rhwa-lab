@@ -37,7 +37,7 @@ quota (~48). A Red Hat pull secret with Red Hat registry entitlement.
 ## Usage
 
 ```bash
-# All inputs come from environment variables (no config/secrets file).
+# Inputs come from environment variables (or the optional source_me.env file).
 export ODF_ENABLED=false # optional. ODF is enabled by default
 export OCP_VERSION=stable-4.22 # optional. Can be any OCP Release https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/ stable-4.22, 5.0.0-rc.1, etc.
 export BASE_DOMAIN=migration.redhat.com # optional; replace with a domain served by your Route53 hosted zone
@@ -70,12 +70,17 @@ cp source_me.env_example source_me.env
 # Put your pull secret in pull-secret.txt (or set PULL_SECRET_FILE to its path).
 # Edit source_me.env: set BASE_DOMAIN; uncomment AWS settings to override your environment.
 # Check SSH_PUBLIC_KEY_FILE points to a public key with a matching private key.
-source source_me.env && ./rhwa-lab create
+./rhwa-lab create
 ```
 `source_me.env` and `pull-secret.txt` are gitignored because they can contain
-secrets. Source `source_me.env` again in each new shell before running
-`./rhwa-lab` commands. 
-```
+secrets. On each invocation, `rhwa-lab` checks for `source_me.env` beside the
+script and asks whether to source it for that session. Answer `y` or `yes`
+(case-insensitive) to load it before configuration defaults are computed.
+These settings apply only to that invocation; your calling shell is unchanged.
+Press Enter or decline to keep your existing environment. If the file is
+absent, startup continues without a prompt; end-of-input also skips loading.
+If sourcing fails, the command stops. You can still source the file manually;
+for unattended use, run `source source_me.env && ./rhwa-lab create </dev/null`.
 
 Set `BASE_DOMAIN` to the domain you want to use for the cluster. It defaults to
 `migration.redhat.com` and controls both the OpenShift install configuration and
