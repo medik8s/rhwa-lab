@@ -82,6 +82,12 @@ absent, startup continues without a prompt; end-of-input also skips loading.
 If sourcing fails, the command stops. You can still source the file manually;
 for unattended use, run `source source_me.env && ./rhwa-lab create </dev/null`.
 
+`./rhwa-lab test` selects a Ready dedicated worker from the live cluster and
+uses that node's InternalIP to stop kubelet. Metal3 can provision any available
+worker host, so `worker-0` is not guaranteed to be installed. Fencing mappings
+cover all worker hosts, including spares that become nodes; the test checks the
+selected node's mapping before stopping kubelet.
+
 Set `BASE_DOMAIN` to the domain you want to use for the cluster. It defaults to
 `migration.redhat.com` and controls both the OpenShift install configuration and
 the DNS names (`api.<CLUSTER_NAME>.<BASE_DOMAIN>` and
@@ -122,25 +128,27 @@ throughput ceiling; provision both to lift both.
 
 ### Spare workers (for post-install tests)
 
-`create` also defines `SPARE_WORKER_COUNT` (default **3**) extra worker VM(s)
-that are **not** part of the install: excluded from install-config/agent-config
-and never booted during `create`. They continue the worker numbering (with
-`WORKER_COUNT=3` the spares are `worker-3`, `worker-4`, `worker-5`) — there is no
-`-spare-` name prefix; "spare" just means an unconsumed `available` host. Each
-gets its sushy-tools Redfish BMC plus a
-provisionable, metal3-managed `BareMetalHost` in `openshift-machine-api`
+`create` also defines `SPARE_WORKER_COUNT` (default **3**) extra worker VM(s),
+excluded from the agent install and initially powered off. They continue the
+worker numbering (with `WORKER_COUNT=3` the extra hosts are `worker-3`,
+`worker-4`, `worker-5`) — there is no `-spare-` name prefix. Each gets its
+sushy-tools Redfish BMC plus a provisionable, metal3-managed `BareMetalHost`
+in `openshift-machine-api`
 (`bmc.address`/credentials set, `rootDeviceHints: /dev/vda`, **not**
-externallyProvisioned) that metal3 inspects and leaves **`available`** — an
-unconsumed host ready to be provisioned. To use one in a test, scale the
-baremetal MachineSet up; metal3 consumes an `available` BMH and provisions it:
+externallyProvisioned) that metal3 inspects and makes **`available`**. During
+post-install provisioning, Metal3 selects `WORKER_COUNT` hosts from the whole
+worker pool, including these extra hosts. The remaining available hosts provide
+spare capacity; their worker numbers need not be consecutive. To use one in a
+test, scale the baremetal MachineSet up; metal3 consumes an `available` BMH and
+provisions it:
 
 ```bash
 oc -n openshift-machine-api scale machineset <machineset> --replicas=<n>
 # metal3 picks up an available BMH and provisions it onto the new Machine
 ```
 
-Set `SPARE_WORKER_COUNT=0` to disable. Spares still add ~4 vCPU each *only when
-provisioned* by a test.
+Set `SPARE_WORKER_COUNT=0` to disable extra capacity. Additional nodes use
+~4 vCPU each *only when provisioned*.
 
 ### Reprovisionable workers
 

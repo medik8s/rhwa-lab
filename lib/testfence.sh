@@ -12,12 +12,26 @@ _target_far() {
 test_fence() {
   [[ "$(state_get cluster_installed)" == "yes" ]] || die "No installed cluster in state; run 'create' first."
   os_local_oc
-  compute_nodes
-  local target="${NODE_HOST[$CONTROL_PLANE_COUNT]}"   # first worker
-  [[ -n "$target" ]] || die "No worker node to target."
+  # Metal3 can provision any available worker BMH, including a spare; worker-0
+  # need not be a Node at all. Discover the target and SSH address together.
+  local nodes target target_ip template systems_uri
+  nodes="$(oc get nodes -l 'node-role.kubernetes.io/worker=,!node-role.kubernetes.io/control-plane' -o json)" \
+    || die "Could not query worker nodes."
+  target="$(jq -r '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))]
+    | sort_by(.metadata.name) | .[0].metadata.name // empty' <<< "$nodes")" \
+    || die "Could not read worker nodes."
+  [[ -n "$target" ]] || die "No Ready worker node to target; check nodes and BareMetalHosts in openshift-machine-api."
+  target_ip="$(jq -r --arg node "$target" '.items[] | select(.metadata.name == $node)
+    | [.status.addresses[]? | select(.type == "InternalIP") | .address][0] // empty' <<< "$nodes")"
+  [[ -n "$target_ip" ]] || die "No InternalIP for ${target}; cannot SSH to stop kubelet."
 
-  log "Fencing test target: ${target}"
-  oc get node "$target" >/dev/null 2>&1 || die "Node ${target} not found."
+  log "Fencing test target: ${target} (${target_ip})"
+  # Older labs may lack mappings for provisioned spares. Fail before disrupting
+  # a node if FAR has no Redfish system to fence for it.
+  template="$(oc -n "$RHWA_NAMESPACE" get fenceagentsremediationtemplate fenceagentsremediationtemplate-default -o json)" \
+    || die "Could not read the fencing template."
+  systems_uri="$(jq -r --arg node "$target" '.spec.template.spec.nodeparameters["--systems-uri"][$node] // empty' <<< "$template")"
+  [[ -n "$systems_uri" ]] || die "No fencing systems URI for ${target}; refresh the RHWA fencing configuration before retrying."
   local boot0 ready0
   boot0="$(_node_bootid "$target")"
   [[ -n "$boot0" ]] || die "Could not read ${target}'s boot ID."
@@ -32,7 +46,7 @@ test_fence() {
 
   log "Inducing unhealth: stopping kubelet on ${target}"
   # SSH stays up after kubelet stops; oc debug waits for its pod to time out.
-  ssh_node "${NODE_IP[$CONTROL_PLANE_COUNT]}" 'sudo systemctl stop kubelet' \
+  ssh_node "$target_ip" 'sudo systemctl stop kubelet' \
     || die "Could not stop kubelet on ${target}."
 
   log "Waiting for ${target} to go NotReady..."
