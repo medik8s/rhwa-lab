@@ -348,7 +348,7 @@ spec:
         "--ipport": "${SUSHY_PORT}"
         "--username": "${SUSHY_USER}"
         "--password": "${SUSHY_PASS}"
-        "--ssl-insecure": "1"
+        "--ssl-insecure": ""
       nodeparameters:
 $(_far_nodeparams)
 EOF

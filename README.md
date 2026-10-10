@@ -19,8 +19,13 @@ no live AWS test has been performed. Expect to iterate. Design spec:
 ## Prerequisites (your machine)
 
 Runs on **Linux or macOS** (Intel or Apple Silicon). Needs `bash`, `aws` CLI
-v2, `jq`, `curl`, `ssh`/`scp`, `tar`, `openssl`, `base64` (all present by
-default on both) and an SSH keypair (`~/.ssh/id_rsa[.pub]` by default).
+v2 with EC2 nested virtualization support, `jq`, `curl`, `ssh`/`scp`, `tar`,
+`openssl`, `base64` (all present by default on both) and an SSH keypair
+(`~/.ssh/id_rsa[.pub]` by default). If preflight reports that your AWS CLI does
+not support nested virtualization, upgrade it. With Homebrew, run
+`brew update && brew upgrade awscli`.
+The host requires an Ed25519 key or an RSA key of at least 2048 bits; shorter
+RSA keys are rejected by Fedora's default cryptographic policy.
 `oc`/`openshift-install` are downloaded automatically — the local `oc` matches
 your OS/arch. No GNU coreutils required; macOS's stock `bash` 3.2 is fine.
 An AWS account allowed to manage EC2/EIP/Route53 with enough On-Demand vCPU
@@ -55,6 +60,21 @@ Usage:
   ./rhwa-lab set-disk-perf [--iops N] [--throughput M]  Adjust host EBS IOPS/throughput live
   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
   ./rhwa-lab help       Show this help
+```
+
+The commands read their settings from exported environment variables. For an
+optional local setup file, start with the [example](source_me.env_example):
+
+```bash
+cp source_me.env_example source_me.env
+# Put your pull secret in pull-secret.txt (or set PULL_SECRET_FILE to its path).
+# Edit source_me.env: set BASE_DOMAIN; uncomment AWS settings to override your environment.
+# Check SSH_PUBLIC_KEY_FILE points to a public key with a matching private key.
+source source_me.env && ./rhwa-lab create
+```
+`source_me.env` and `pull-secret.txt` are gitignored because they can contain
+secrets. Source `source_me.env` again in each new shell before running
+`./rhwa-lab` commands. 
 ```
 
 Set `BASE_DOMAIN` to the domain you want to use for the cluster. It defaults to
@@ -258,9 +278,10 @@ These are the spots most likely to need a fix on the first real run:
 2. **RHCOS NIC name** — agent-config assumes `enp1s0`; may differ by machine
    type (nmstate matches by MAC as a hedge).
 3. **cdrom target dev** for the agent ISO in libvirt (`sda` vs `hda`).
-4. **`fence_redfish` valueless flags** — `--ssl-insecure` is passed with an
-   empty value; FAR's parameter handling may need adjustment (check FAR pod
-   logs during `test`).
+4. **`fence_redfish` valueless flags** — Keep `--ssl-insecure` as an empty
+   string in the FAR template so FAR passes the flag without an argument.
+   Giving it a value such as `"1"` makes `fence_redfish` reject the command;
+   see the [fencing incident note](docs/fence-redfish-ssl-insecure-pr-note.md).
 5. **Operator install** — defaults to `make dev-olm-deploy` from each repo's
    `main` (see "RHWA operator install method"); `machine-deletion-remediation`
    and any failed `make` install fall back to the catalog. For the `make` path:
@@ -276,19 +297,6 @@ These are the spots most likely to need a fix on the first real run:
    source (`make`) by default. Installing SBR only deploys the operator; it also
    needs a `StorageBasedRemediationConfig` CR (and suitable storage) to provision
    its agent DaemonSet — out of scope for the operator install here.
-8. **BareMetalHost BMC wiring** — each node's BMH is populated with its
-   sushy-tools `bmc.address` (`redfish-virtualmedia://…`) + credentials Secret,
-   so metal3/ironic power-manages it in addition to FAR. Both drive the same
-   Redfish endpoint; if you see unexpected power actions, this is the place to
-   look. Masters keep `externallyProvisioned: true` (BMC only — never
-   `bootMACAddress`/`rootDeviceHints`) so ironic power-manages but never
-   re-provisions the running control plane; workers/spares are born
-   provisionable (see "Reprovisionable workers" below). The virtual-media driver
-   needs UEFI + a cdrom (both present). `SUSHY_EMULATOR_IGNORE_BOOT_DEVICE=False`
-   is required so ironic's per-device boot override is honored during
-   provisioning. Fencing stays safe because existing nodes boot disk first (boot
-   order 1) and `fence_redfish` sends `ForceRestart` with **no** boot-device
-   override, so a fence reboot returns to disk, not to the attached media.
 6. **Host distro** — the EC2 host runs **Fedora Cloud Base** (owner
    `125523088429`, release `FEDORA_RELEASE`, default 44), which ships the full
    virtualization stack; AL2023 does not. Override the image with `HOST_AMI`
@@ -302,6 +310,19 @@ These are the spots most likely to need a fix on the first real run:
    rebuild, `destroy` and `create` again. As a safety net, `os_wait_install`
    verifies the fetched kubeconfig actually authenticates and, if not, recovers
    a working cluster-admin kubeconfig from a master's recovery kubeconfig.
+8. **BareMetalHost BMC wiring** — each node's BMH is populated with its
+   sushy-tools `bmc.address` (`redfish-virtualmedia://…`) + credentials Secret,
+   so metal3/ironic power-manages it in addition to FAR. Both drive the same
+   Redfish endpoint; if you see unexpected power actions, this is the place to
+   look. Masters keep `externallyProvisioned: true` (BMC only — never
+   `bootMACAddress`/`rootDeviceHints`) so ironic power-manages but never
+   re-provisions the running control plane; workers/spares are born
+   provisionable (see "Reprovisionable workers" below). The virtual-media driver
+   needs UEFI + a cdrom (both present). `SUSHY_EMULATOR_IGNORE_BOOT_DEVICE=False`
+   is required so ironic's per-device boot override is honored during
+   provisioning. Fencing stays safe because existing nodes boot disk first (boot
+   order 1) and `fence_redfish` sends `ForceRestart` with **no** boot-device
+   override, so a fence reboot returns to disk, not to the attached media.
 9. **ODF operator channel** — `ODF_CHANNEL` is derived from `OCP_VERSION`
    (`stable-4.NN`). Confirm that channel actually exists for the `odf-operator`
    package in the redhat-operators catalog on your cluster; ODF channels can lag
