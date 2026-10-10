@@ -555,9 +555,9 @@ odf_import_external() {
       else empty end
     ]}' "${src}" | oc apply -f -
   # (b) the blob secret. .data values are base64, so base64(JSON) -> operator decodes it.
-  # `base64 | tr -d '\n'` is portable (GNU wraps at 76 by default; macOS/BSD
-  # base64 has no `-w0`), giving one unwrapped line on both.
-  local b64; b64="$(base64 "${src}" | tr -d '\n')"
+  # Read via stdin: macOS/BSD base64 rejects a positional filename. Strip
+  # newlines for GNU's default wrapping without relying on its `-w0` flag.
+  local b64; b64="$(base64 < "${src}" | tr -d '\n')"
   oc apply -f - <<EOF
 apiVersion: v1
 kind: Secret
