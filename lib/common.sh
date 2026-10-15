@@ -80,10 +80,14 @@
 : "${ODF_ENABLED:=true}"
 : "${ODF_NAMESPACE:=openshift-storage}"
 # ODF operator channel must track the cluster's OCP minor in the redhat-operators
-# catalog. Derived from OCP_VERSION (stable-4.NN -> stable-4.NN) when unset.
+# catalog. Derived from OCP_VERSION (stable-4.NN -> stable-4.NN, or a release
+# string like 4.22.13 / 5.0.0-rc.1 -> its major.minor) when unset.
 if [[ "${OCP_VERSION}" =~ ^[a-z]+-([0-9]+\.[0-9]+)$ ]]; then
   _odf_minor="${BASH_REMATCH[1]}"
+elif [[ "${OCP_VERSION}" =~ ^([0-9]+\.[0-9]+) ]]; then
+  _odf_minor="${BASH_REMATCH[1]}"
 else
+  printf '\033[1;33m[%s] ! Could not derive OCP minor from OCP_VERSION='"'"'%s'"'"'; defaulting ODF channel to stable-4.22\033[0m\n' "$(date +%H:%M:%S)" "${OCP_VERSION}" >&2
   _odf_minor="4.22"
 fi
 : "${ODF_CHANNEL:=stable-${_odf_minor}}"   # ITERATE: confirm this channel exists in the catalog for your OCP version
