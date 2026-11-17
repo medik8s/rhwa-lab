@@ -12,6 +12,7 @@
 #   ./rhwa-lab power <on|off|reset> <node>  Out-of-band power via ssh->virsh
 #   ./rhwa-lab vms-definitions   Print node->domain/host JSON for test power control
 #   ./rhwa-lab set-disk-perf [--iops N] [--throughput M]  Adjust host EBS IOPS/throughput live
+#   ./rhwa-lab medik8s-upgrade [--rollback-only]  Migrate the individual RHWA operators to the WAO operator (medik8s-cli PoC)
 #   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
 #   ./rhwa-lab help       Show this help
 #
@@ -38,11 +39,12 @@ source "${SELF_DIR}/lib/host.sh"
 source "${SELF_DIR}/lib/vms.sh"
 source "${SELF_DIR}/lib/openshift.sh"
 source "${SELF_DIR}/lib/rhwa.sh"
+source "${SELF_DIR}/lib/upgrade.sh"
 source "${SELF_DIR}/lib/odf.sh"
 source "${SELF_DIR}/lib/testfence.sh"
 source "${SELF_DIR}/lib/power.sh"
 
-usage() { sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 check_inputs() {
   require_cmds aws jq curl ssh scp tar openssl
@@ -180,6 +182,13 @@ cmd_vms_definitions() { state_init; emit_vms_definitions; }
 
 cmd_set_disk_perf() { require_cmds aws; state_init; aws_set_disk_perf "$@"; }
 
+cmd_medik8s_upgrade() {
+  require_cmds ssh scp
+  state_init
+  [[ -n "$(state_get eip)" ]] || die "No instance for '${CLUSTER_NAME}'; run create first."
+  medik8s_upgrade "$@"
+}
+
 cmd_destroy() {
   require_cmds aws
   state_init
@@ -232,6 +241,7 @@ main() {
     power)   cmd_power   "$@" ;;
     vms-definitions) cmd_vms_definitions "$@" ;;
     set-disk-perf) cmd_set_disk_perf "$@" ;;
+    medik8s-upgrade) cmd_medik8s_upgrade "$@" ;;
     destroy) cmd_destroy "$@" ;;
     status)  cmd_status  "$@" ;;
     help|-h|--help) usage ;;

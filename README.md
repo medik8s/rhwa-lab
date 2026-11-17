@@ -53,6 +53,7 @@ Usage:
   ./rhwa-lab power <on|off|reset> <node>  Out-of-band power via ssh->virsh
   ./rhwa-lab vms-definitions   Print node->domain/host JSON for test power control
   ./rhwa-lab set-disk-perf [--iops N] [--throughput M]  Adjust host EBS IOPS/throughput live
+  ./rhwa-lab medik8s-upgrade [--rollback-only]  Migrate the individual RHWA operators to the WAO operator (medik8s-cli PoC)
   ./rhwa-lab destroy    Tear everything down (incl. Route53 records)
   ./rhwa-lab help       Show this help
 ```
@@ -182,6 +183,43 @@ OLM, so readiness waits on the CSV reaching `Succeeded`. To test a local branch,
 set e.g. `FENCE_AGENTS_REMEDIATION_REF=my-branch` (the image is built from that
 checkout).
 
+### Migrate to the WAO operator (`medik8s-upgrade`)
+
+Once a lab is up with the six individual operators installed, `./rhwa-lab
+medik8s-upgrade` migrates them to the single **Workload Availability Operator
+(WAO)**, which manages them as operands under one `WorkloadAvailabilityConfig`.
+It drives the [`medik8s-cli`](https://github.com/medik8s/medik8s-cli) upgrade
+proof-of-concept (`scripts/poc/upgrade.sh`): back up every medik8s CR to a PVC →
+delete the source operators (CRs → operands → OLM) → build and install WAO →
+restore the CRs as WAO operands.
+
+```bash
+./rhwa-lab medik8s-upgrade                 # forward: backup -> delete -> install WAO
+./rhwa-lab medik8s-upgrade --rollback-only # undo: remove WAO, reinstall originals from backup
+```
+
+Like the from-source install path, this runs **on the EC2 host**: the PoC's
+`install-wao.sh` clones the WAO repo and runs its Makefile (go/make + podman) to
+build the operator/bundle/catalog images and push them to `ttl.sh`, from which the
+cluster pulls. The lab clones the PoC to `~/${MEDIK8S_CLI_DIR}` on the host, adds a
+`kubectl`→`oc` shim (the PoC calls `kubectl`), pushes the verified kubeconfig, then
+runs it **non-interactively** (`--yes`) targeting `RHWA_NAMESPACE`. Combined output
+is tee'd to `state/<cluster>/upgrade/medik8s-upgrade-<timestamp>.log`.
+
+> The PoC backup PVC uses the cluster's **default StorageClass**. With ODF enabled
+> the lab marks `ocs-external-storagecluster-ceph-rbd` default automatically (see
+> `ODF_DEFAULT_SC`), so this is already handled; `medik8s-upgrade` only warns if no
+> default is set (e.g. ODF disabled), in which case mark one first:
+> `oc patch sc <name> -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`.
+
+Controls:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIK8S_CLI_REPO` | `https://github.com/medik8s/medik8s-cli` | PoC repo cloned on the host. Point at a fork to test changes. |
+| `MEDIK8S_CLI_REF` | repo default branch | Branch/tag/SHA to check out (applied at clone time). |
+| `MEDIK8S_CLI_DIR` | `rhwa-medik8s-cli` | On-host clone directory (under `$HOME`). |
+
 ### OpenShift Data Foundation (external Ceph)
 
 `create` also stands up **OpenShift Data Foundation (ODF) in external mode**,
@@ -219,7 +257,8 @@ is wired the same way the OCP console does it: the
 the connection JSON (mons, fsid, CSI keys, monitoring endpoint), which `create`
 materializes as the `rook-ceph-*` Secrets/ConfigMaps and then creates an
 external-mode `StorageCluster` (`ocs-external-storagecluster`). ODF then creates
-the `ocs-external-storagecluster-ceph-rbd` StorageClass automatically.
+the `ocs-external-storagecluster-ceph-rbd` StorageClass automatically, which the
+lab marks as the cluster **default** (override with `ODF_DEFAULT_SC`).
 
 #### CephFS (filesystem / RWX) StorageClass
 

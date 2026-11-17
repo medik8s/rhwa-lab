@@ -601,6 +601,32 @@ EOF
   return 1
 }
 
+# Mark ODF_DEFAULT_SC (the RBD block StorageClass) as the cluster default so PVCs
+# without an explicit storageClassName bind to it -- notably the `medik8s-upgrade`
+# PoC backup PVC. ocs-operator creates the StorageClass shortly after the
+# StorageCluster goes Ready, so wait for it to appear, then annotate. Non-fatal:
+# a missing SC only warns (an otherwise-successful create still completes).
+odf_set_default_storageclass() {
+  local sc="${ODF_DEFAULT_SC:-}" i
+  [[ -n "$sc" ]] || { log "ODF_DEFAULT_SC empty; leaving cluster without a default StorageClass"; return 0; }
+  log "Marking StorageClass ${sc} as cluster default"
+  for ((i=0; i<30; i++)); do
+    oc get storageclass "$sc" >/dev/null 2>&1 && break
+    sleep 10
+  done
+  if ! oc get storageclass "$sc" >/dev/null 2>&1; then
+    warn "StorageClass ${sc} did not appear; not setting a default StorageClass"
+    return 1
+  fi
+  if oc patch storageclass "$sc" --type=merge \
+       -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' >/dev/null 2>&1; then
+    ok "Default StorageClass set: ${sc}"
+  else
+    warn "could not annotate ${sc} as the default StorageClass"
+    return 1
+  fi
+}
+
 # Orchestrate the whole ODF-external feature. No-op when ODF_ENABLED=false.
 odf_setup() {
   [[ "${ODF_ENABLED}" == "true" ]] || { log "ODF_ENABLED=false; skipping ODF/Ceph setup"; return 0; }
@@ -611,5 +637,6 @@ odf_setup() {
   odf_install_operator
   odf_import_external
   odf_create_storagecluster
+  odf_set_default_storageclass || true
   ok "ODF external + Ceph setup complete"
 }

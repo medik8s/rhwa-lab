@@ -13,7 +13,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 log(){ :; }; ok(){ :; }; warn(){ :; }; die(){ echo "DIE: $*"; exit 1; }
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/rhwa-test.XXXXXX")"
-export CEPH_ENABLED=true ODF_NAMESPACE=openshift-storage CLUSTER_DIR="$tmp"
+export CEPH_ENABLED=true ODF_NAMESPACE=openshift-storage CLUSTER_DIR="$tmp" \
+       ODF_DEFAULT_SC=ocs-external-storagecluster-ceph-rbd
 cat >"$tmp/ceph-external.json" <<'JSON'
 [
  {"name":"rook-ceph-mon-endpoints","kind":"ConfigMap","data":{"data":"a=192.168.126.10:6789"}},
@@ -49,4 +50,17 @@ odf_create_storagecluster
 assert_contains "$OUT" "kind: StorageCluster"
 assert_contains "$OUT" "name: ocs-external-storagecluster"
 assert_contains "$OUT" "enable: true"
+
+# The RBD StorageClass is annotated as the cluster default (so default-SC PVCs,
+# e.g. the medik8s-upgrade backup, bind). The stub's `oc get storageclass` returns
+# 0, so the wait loop breaks immediately and the patch is issued.
+: >"$OUT"
+odf_set_default_storageclass
+assert_contains "$OUT" "patch storageclass ocs-external-storagecluster-ceph-rbd"
+assert_contains "$OUT" "storageclass.kubernetes.io/is-default-class"
+
+# Empty ODF_DEFAULT_SC leaves the cluster without a default (no patch issued).
+: >"$OUT"
+ODF_DEFAULT_SC="" odf_set_default_storageclass
+assert_not_contains "$OUT" "is-default-class"
 echo "PASS"

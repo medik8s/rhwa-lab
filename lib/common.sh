@@ -72,6 +72,17 @@
 : "${RHWA_DEV_TOOLS_DIR:=rhwa-tools}"
 : "${RHWA_DEV_BUNDLE_TIMEOUT:=10m}"
 
+# `medik8s-upgrade`: migrate the six individual RHWA operators to the single
+# Workload Availability Operator (WAO) via the medik8s-cli upgrade PoC
+# (scripts/poc/upgrade.sh). The PoC is cloned to ~/${MEDIK8S_CLI_DIR} and run on
+# the EC2 host (same go/make/podman toolchain + ttl.sh egress as dev-olm-deploy),
+# targeting RHWA_NAMESPACE (passed through as WAO_BACKUP_NAMESPACE /
+# WAO_INSTALL_NAMESPACE). _REF (branch/tag/SHA) applies at clone time; empty tracks
+# the repo default branch. Override _REPO to point at a fork.
+: "${MEDIK8S_CLI_REPO:=https://github.com/medik8s/medik8s-cli}"
+: "${MEDIK8S_CLI_REF:=}"
+: "${MEDIK8S_CLI_DIR:=rhwa-medik8s-cli}"
+
 # ---------------------------------------------------------------------------
 # ODF (OpenShift Data Foundation) in EXTERNAL mode, backed by a single-host
 # Ceph cluster running on its own libvirt VM with 3 extra disks (one OSD each).
@@ -119,6 +130,11 @@ esac
 : "${CEPH_POOL_REPLICA:=3}"                # replicated pool size; usable = raw / replica
 : "${CEPH_POOL_USABLE_GB:=200}"            # target usable capacity of the RBD data pool
 : "${CEPH_RBD_POOL:=ocs-storagepool}"      # RBD data pool ODF external consumes
+# After the StorageCluster is Ready, mark this StorageClass (the RBD block/RWO one
+# ocs-operator creates) as the cluster DEFAULT, so PVCs without an explicit
+# storageClassName bind to it -- e.g. the `medik8s-upgrade` PoC backup PVC.
+# Override to make a different StorageClass (e.g. the CephFS one) the default.
+: "${ODF_DEFAULT_SC:=ocs-external-storagecluster-ceph-rbd}"
 # CephFS (filesystem) StorageClass. ON by default: odf_ceph_bootstrap creates a
 # CephFS + MDS on the external Ceph and the exporter advertises it, so ODF also
 # creates the 'ocs-external-storagecluster-cephfs' StorageClass (RWX-capable)
