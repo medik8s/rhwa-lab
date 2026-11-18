@@ -54,6 +54,9 @@ NC="${CLUSTER_DIR}/ceph/network-config"
 assert_contains "$NC" "192.168.126.10/24"
 assert_contains "$NC" "52:54:00:6a:03:00"
 assert_contains "$NC" "dhcp4: false"
+assert_contains "$NC" "to: 0.0.0.0/0"
+assert_contains "$NC" "via: 192.168.126.1"
+assert_not_contains "$NC" "to: default"
 # ...and network-config is baked into the seed ISO.
 assert_contains "$STUB_OUT" "network-config"
 
