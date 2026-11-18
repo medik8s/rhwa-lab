@@ -30,6 +30,12 @@ Set ROUTE53_ZONE_ID to a zone id (Z...) or a domain you own in Route53."
 
 aws_preflight() {
   log "AWS preflight checks"
+  # Older AWS CLI EC2 models reject this option locally, before contacting AWS.
+  if ! aws ec2 run-instances --generate-cli-skeleton input 2>/dev/null \
+      | jq -e '.CpuOptions | has("NestedVirtualization")' >/dev/null; then
+    die "AWS CLI ($(aws --version 2>&1)) does not support EC2 nested virtualization. Upgrade the AWS CLI and retry."
+  fi
+
   aws sts get-caller-identity >/dev/null 2>&1 \
     || die "AWS credentials invalid or not set (check AWS_ACCESS_KEY_ID / AWS_PROFILE)."
 
@@ -61,6 +67,12 @@ aws_preflight() {
 aws_import_keypair() {
   [[ -f "$SSH_PUBLIC_KEY_FILE" ]] || die "SSH public key not found: ${SSH_PUBLIC_KEY_FILE}"
   [[ -f "$PRIV_KEY" ]] || warn "Private key ${PRIV_KEY} not found; ssh to host/nodes will fail."
+  local key_info
+  key_info="$(ssh-keygen -lf "$SSH_PUBLIC_KEY_FILE" 2>/dev/null)" \
+    || die "Invalid SSH public key: ${SSH_PUBLIC_KEY_FILE}"
+  if [[ "$key_info" == *' (RSA)' && "${key_info%% *}" -lt 2048 ]]; then
+    die "${SSH_PUBLIC_KEY_FILE} is a ${key_info%% *}-bit RSA key; Fedora requires at least 2048 bits. Use an Ed25519 or stronger RSA key."
+  fi
   if aws ec2 describe-key-pairs --key-names "$KEYPAIR_NAME" >/dev/null 2>&1; then
     log "Reusing existing EC2 keypair ${KEYPAIR_NAME}"
   else

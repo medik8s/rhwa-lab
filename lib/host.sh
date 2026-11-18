@@ -39,6 +39,12 @@ host_libvirt_network() {
   <name>${LIBVIRT_NET}</name>
   <forward mode='nat'/>
   <bridge name='virbr-rhwa' stp='on' delay='0'/>
+  <dns>
+    <host ip='${API_VIP}'>
+      <hostname>api-int.${CLUSTER_NAME}.${BASE_DOMAIN}</hostname>
+      <hostname>api.${CLUSTER_NAME}.${BASE_DOMAIN}</hostname>
+    </host>
+  </dns>
   <ip address='${NET_GATEWAY}' netmask='255.255.255.0'>
     <dhcp>
       <range start='${net3}.100' end='${net3}.199'/>
@@ -48,7 +54,8 @@ ${reservations}    </dhcp>
 EOX
   # DHCP range is required so a metal3-provisioned worker's generic IPA ramdisk
   # gets an address; static reservations pin each node/spare to its known IP so
-  # DHCP and the masters' agent-config nmstate agree.
+  # DHCP and the masters' agent-config nmstate agree. Host DNS must resolve the
+  # internal API at boot, before the node-local DNS container can start.
   ssh_host "sudo bash -c '
     virsh net-info ${LIBVIRT_NET} >/dev/null 2>&1 || virsh net-define /tmp/${LIBVIRT_NET}.xml
     virsh net-autostart ${LIBVIRT_NET} 2>/dev/null || true
